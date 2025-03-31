@@ -8,7 +8,9 @@
 import MetalKit
 import SwiftUI
 
-// TODO: TD OPENGL MODERNE - LES BASES- Version Metal https://file.notion.so/f/f/f2320c07-9643-4088-a89e-2937678b3550/d586967a-2a66-4f5c-8954-b429b14aa2fb/OpenGL_-_TD_OpenGL_01_-_bases.pdf?table=block&id=1ae116e2-d32d-80cd-b375-f19d5f391d4a&spaceId=f2320c07-9643-4088-a89e-2937678b3550&expirationTimestamp=1741305600000&signature=1J9XbzXR5KYhopOmN48zBVUuFoIuNx1ArlaNd-Te6eE&downloadName=OpenGL+-+TD+OpenGL+01+-+bases.pdf
+// TD OPENGL MODERNE - LES BASES- Version Metal https://file.notion.so/f/f/f2320c07-9643-4088-a89e-2937678b3550/d586967a-2a66-4f5c-8954-b429b14aa2fb/OpenGL_-_TD_OpenGL_01_-_bases.pdf?table=block&id=1ae116e2-d32d-80cd-b375-f19d5f391d4a&spaceId=f2320c07-9643-4088-a89e-2937678b3550&expirationTimestamp=1741305600000&signature=1J9XbzXR5KYhopOmN48zBVUuFoIuNx1ArlaNd-Te6eE&downloadName=OpenGL+-+TD+OpenGL+01+-+bases.pdf
+// Because we are already using pipelineDescriptor, vertexDescriptor... in Metal, we have nothing special to do for exercise B.3.
+
 struct TD_01_MetalCanvasView: NSViewRepresentable {
     func makeNSView(context: Context) -> MTKView {
         // 1. Instantiates the Metal view

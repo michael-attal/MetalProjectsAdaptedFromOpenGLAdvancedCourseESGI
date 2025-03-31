@@ -18,16 +18,26 @@ struct TD_01_Triangle_VertexOut {
     float4 color;
 };
 
-
+// For exercises A1, A2 and B1
 float4 vertexPosition2DTo3D(float2 position2D) {
     return float4(position2D.x, position2D.y, 0.0, 1.0);
 }
-    
-vertex TD_01_Triangle_VertexOut vs_td_01_triangle(TD_01_Triangle_VertexIn inVertex [[stage_in]])
+
+// For exercice B2: Retrieves vertex position from an array passed via buffer
+float4 vertexPositionFromPositionsBufferAndVertexIndex(constant float2 *positions, uint vertexIndex) {
+    // We retrieve the position from the positions array using the vertex index.
+    return float4(positions[vertexIndex], 0.0, 1.0);
+}
+
+vertex TD_01_Triangle_VertexOut vs_td_01_triangle(TD_01_Triangle_VertexIn inVertex [[stage_in]],
+                                                  uint vertexIndex [[vertex_id]],
+                                                  constant float2 *positions [[buffer(1)]])
 {
     TD_01_Triangle_VertexOut out;
 
-    out.position = vertexPosition2DTo3D(inVertex.position);
+    // out.position = vertexPosition2DTo3D(inVertex.position); // A1, A2, B1
+    out.position = vertexPositionFromPositionsBufferAndVertexIndex(positions, vertexIndex); // B2
+
     out.color = inVertex.color;
     return out;
 }

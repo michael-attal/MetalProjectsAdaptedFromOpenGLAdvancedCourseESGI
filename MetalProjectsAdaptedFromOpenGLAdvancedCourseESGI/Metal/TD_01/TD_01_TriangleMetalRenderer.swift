@@ -17,7 +17,11 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
     private var pipelineState: MTLRenderPipelineState?
     private var commandQueue: MTLCommandQueue?
     private var vertexBuffer: MTLBuffer?
-    
+    private var indexBuffer: MTLBuffer? // For exercise B2
+    private var positionsBuffer: MTLBuffer? // For exercise B2
+
+    var indices: [UInt16] = []
+
     init(mtkView: MTKView) {
         guard let device = mtkView.device else {
             fatalError("MTKView has no MTLDevice.")
@@ -48,7 +52,7 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
         pipelineDescriptor.fragmentFunction = fragmentFunction
         pipelineDescriptor.colorAttachments[0].pixelFormat = mtkView.colorPixelFormat
         
-        // 4.b Vertex buffer descriptor creation - Not needed in theory for a simple triangle primitive (Metal does it automatically), but for the sake of the TP, let's do it
+        // 4.b Vertex buffer descriptor creation
         let vertexDescriptor = MTLVertexDescriptor()
         vertexDescriptor.attributes[0].format = .float2
         vertexDescriptor.attributes[0].offset = 0
@@ -68,11 +72,13 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
             fatalError("Could not create pipeline state: \(error)")
         }
         
-        // 5.b Vertex buffer creation
+        // 5.b Vertex & Index buffer creation
+        
         let positions2D: [SIMD2<Float>] = [
-            SIMD2<Float>(-0.5, -0.5),
-            SIMD2<Float>(0.5, -0.5),
-            SIMD2<Float>(0.0, 0.5)
+            SIMD2<Float>(-0.5, -0.5), // bottom-left
+            SIMD2<Float>(0.5, -0.5), // bottom-right
+            SIMD2<Float>(0.0, 0.5), // top middle
+            //SIMD2<Float>(0.0, -0.75) // (bottom adjusted middle) Uncomment for 2 triangles
         ]
         let redColor = SIMD4<Float>(1.0, 0.0, 0.0, 1.0)
         let blueColor = SIMD4<Float>(0.0, 0.0, 1.0, 1.0)
@@ -81,12 +87,30 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
         var vertices: [TD_01_Triangle_VertexIn] = []
         vertices.reserveCapacity(positions2D.count)
         for (i, p) in positions2D.enumerated() {
-            vertices.append(TD_01_Triangle_VertexIn(position: p, color: colors[i]))
+            vertices.append(TD_01_Triangle_VertexIn(position: p, color: colors[i % 3]))
         }
-        
+            
         vertexBuffer = device.makeBuffer(
             bytes: vertices,
             length: vertices.count * MemoryLayout<TD_01_Triangle_VertexIn>.stride,
+            options: []
+        )
+        
+        // Define an array of indices for the triangle(s)
+        indices = [0, 1, 2]
+        // indices = [0, 1, 2, 0, 1, 3] // Uncomment for 2 triangles
+
+        // Create the index buffer
+        indexBuffer = device.makeBuffer(
+            bytes: indices,
+            length: indices.count * MemoryLayout<UInt16>.stride,
+            options: []
+        )
+        
+        // Constant positions buffer
+        positionsBuffer = device.makeBuffer(
+            bytes: positions2D,
+            length: positions2D.count * MemoryLayout<SIMD2<Float>>.stride,
             options: []
         )
     }
@@ -105,7 +129,10 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
             let commandQueue = commandQueue,
             let passDescriptor = view.currentRenderPassDescriptor,
             let drawable = view.currentDrawable,
-            let vertexBuffer = vertexBuffer
+            let vertexBuffer = vertexBuffer,
+            let indexBuffer = indexBuffer,
+            let positionsBuffer = positionsBuffer,
+            indices.count > 0
         else {
             return
         }
@@ -117,10 +144,13 @@ final class TD_01_TriangleMetalRenderer: NSObject, MTKViewDelegate {
         let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor)!
         encoder.setRenderPipelineState(pipelineState)
         
-        encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0) // Not needed in theory because vertex_id is used in the vertex shader (implicit index) if we do not use a custom vertex descriptor but because I want to be clause as possible of the TD I use a custom vertex buffer with a 2D position and a color
+        encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+
+        encoder.setVertexBuffer(positionsBuffer, offset: 0, index: 1)
 
         // 3. Draw a triangle (3 vertices)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        // encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3) // Exercise A1, A2, B1
+        encoder.drawIndexedPrimitives(type: .triangle, indexCount: indices.count, indexType: .uint16, indexBuffer: indexBuffer, indexBufferOffset: 0) // Exercise B.2
         
         // 4. End & commit
         encoder.endEncoding()
