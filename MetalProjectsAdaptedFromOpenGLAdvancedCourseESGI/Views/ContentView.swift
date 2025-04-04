@@ -12,7 +12,8 @@ struct ContentView: View {
     var body: some View {
         VStack {
             // MetalRendererSelector()
-            TD_01()
+            // TD_01_MetalCanvasView().aspectRatio(contentMode: .fit)
+            TD_02_MetalCanvasView().aspectRatio(contentMode: .fit)
         }
     }
 }

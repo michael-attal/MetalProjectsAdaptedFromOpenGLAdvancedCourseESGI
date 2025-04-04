@@ -1,17 +1,16 @@
 //
-//  TD_01_MetalCanvasView.swift
+//  TD_02_MetalCanvasView.swift
 //  MetalProjectsAdaptedFromOpenGLAdvancedCourseESGI
 //
-//  Created by Michaël ATTAL on 06/03/2025.
+//  Created by Michaël ATTAL on 04/04/2025.
 //
 
 import MetalKit
 import SwiftUI
 
-// TD OPENGL MODERNE - LES BASES- Version Metal https://file.notion.so/f/f/f2320c07-9643-4088-a89e-2937678b3550/d586967a-2a66-4f5c-8954-b429b14aa2fb/OpenGL_-_TD_OpenGL_01_-_bases.pdf?table=block&id=1ae116e2-d32d-80cd-b375-f19d5f391d4a&spaceId=f2320c07-9643-4088-a89e-2937678b3550&expirationTimestamp=1741305600000&signature=1J9XbzXR5KYhopOmN48zBVUuFoIuNx1ArlaNd-Te6eE&downloadName=OpenGL+-+TD+OpenGL+01+-+bases.pdf
-// Because we are already using pipelineDescriptor, vertexDescriptor... in Metal, we have nothing special to do for exercise B.3.
+// TD 02 OpenGL - Transformation - Version Metal https://file.notion.so/f/f/f2320c07-9643-4088-a89e-2937678b3550/f45c989a-eda1-4ec7-9271-1c80bbc8df6c/OpenGL_moderne_-_TP_Transformations.pdf?table=block&id=1cb116e2-d32d-80b3-9778-cf8592602f9d&spaceId=f2320c07-9643-4088-a89e-2937678b3550&expirationTimestamp=1743811200000&signature=bQqEDBSceflYfoJMvhT_pPnZGNoSgFgGbxzUyqyOg4w&downloadName=OpenGL+moderne+-+TP+Transformations.pdf
 
-struct TD_01_MetalCanvasView: NSViewRepresentable {
+struct TD_02_MetalCanvasView: NSViewRepresentable {
     func makeNSView(context: Context) -> MTKView {
         // 1. Instantiates the Metal view
         let mtkView = MTKView(frame: .zero)
@@ -23,7 +22,7 @@ struct TD_01_MetalCanvasView: NSViewRepresentable {
         mtkView.clearColor = MTLClearColorMake(0, 0, 0, 1)
         
         // 4. Create the renderer and assign it as a delegate
-        let renderer = TD_01_TriangleMetalRenderer(mtkView: mtkView)
+        let renderer = TD_02_CubeMetalRenderer(mtkView: mtkView)
         mtkView.delegate = renderer
         
         // 5. Stores the renderer in the Coordinator
@@ -42,6 +41,6 @@ struct TD_01_MetalCanvasView: NSViewRepresentable {
     
     class Coordinator {
         // We keep a strong reference here, otherwise the renderer will be freed.
-        var renderer: TD_01_TriangleMetalRenderer?
+        var renderer: TD_02_CubeMetalRenderer?
     }
 }

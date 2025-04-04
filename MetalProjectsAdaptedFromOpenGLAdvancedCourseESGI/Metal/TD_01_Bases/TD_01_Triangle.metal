@@ -1,5 +1,5 @@
 //
-//  TriangleBackup.metal
+//  TD_01_Triangle.metal
 //  MetalProjectsAdaptedFromOpenGLAdvancedCourseESGI
 //
 //  Created by Michaël ATTAL on 06/03/2025.
