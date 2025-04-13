@@ -31,6 +31,7 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
     private var positionsBuffer: MTLBuffer?
     private var direction: TD_02_Cube_Direction = .top_right
     private var scaleEffect: TD_02_Cube_ScaleEffect = .grow
+    private var projectionMatrix: matrix_float4x4 = .init()
     private var translationMatrix: matrix_float4x4 = .init()
     private var rotationMatrix: matrix_float4x4 = .init()
     private var scaleMatrix: matrix_float4x4 = .init()
@@ -91,15 +92,15 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
         // 5.b Vertex & Index buffer creation
         
         let positions3D: [SIMD3<Float>] = [
-            SIMD3<Float>(-0.5, -0.5, 0.5), // front bottom-left
-            SIMD3<Float>(0.5, -0.5, 0.5), // front bottom-right
-            SIMD3<Float>(0.5, 0.5, 0.5), // front top-right
-            SIMD3<Float>(-0.5, 0.5, 0.5), // front top-left
+            SIMD3<Float>(-0.5, -0.5, -0.5), // front bottom-left // z is -0.5 (behind the near plane). z is pointing into the screen (left hand), see 1.7 Metal Coordinate Systems: https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
+            SIMD3<Float>(0.5, -0.5, -0.5), // front bottom-right
+            SIMD3<Float>(0.5, 0.5, -0.5), // front top-right
+            SIMD3<Float>(-0.5, 0.5, -0.5), // front top-left
             
-            SIMD3<Float>(-0.5, -0.5, -0.5), // back bottom-left
-            SIMD3<Float>(0.5, -0.5, -0.5), // back bottom-right
-            SIMD3<Float>(0.5, 0.5, -0.5), // back top-right
-            SIMD3<Float>(-0.5, 0.5, -0.5), // back top-left
+            SIMD3<Float>(-0.5, -0.5, 0.5), // back bottom-left
+            SIMD3<Float>(0.5, -0.5, 0.5), // back bottom-right
+            SIMD3<Float>(0.5, 0.5, 0.5), // back top-right
+            SIMD3<Float>(-0.5, 0.5, 0.5), // back top-left
         ]
         let redColor = SIMD4<Float>(1.0, 0.0, 0.0, 1.0)
         let blueColor = SIMD4<Float>(0.0, 0.0, 1.0, 1.0)
@@ -141,15 +142,15 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
             options: []
         )
         
+        projectionMatrix = getProjectionMatrix()
+
         translationMatrix = getNewTranslationMatrix(isInitialState: true)
         
         rotationMatrix = getNewRotationMatrix(isInitialState: true, for: 0.0)
         
-        let scaleMatrix = matrix_float4x4(
-            1.0,
-        )
+        scaleMatrix = getNewScaleMatrix(isInitialState: true)
         
-        finalMatrix = translationMatrix * rotationMatrix * scaleMatrix
+        finalMatrix = projectionMatrix * translationMatrix * rotationMatrix * scaleMatrix
     }
     
     // MARK: - MTKViewDelegate
@@ -166,7 +167,7 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
                     // C0  C1   C2   C3
                     [1.0, 0.0, 0.0, 0],
                     [0.0, 1.0, 0.0, 0],
-                    [0.0, 0.0, 1.0, 0],
+                    [0.0, 0.0, 1.0, -5.0], // Since the implementation of the projection matrix, move the cube a little bit.
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             )
@@ -182,7 +183,7 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
             // For fun: Switch back to initial state to do a ping pong effect :D
             let tx: Float = direction == .top_right ? prevTx + 0.01 : prevTx - 0.01
             let ty: Float = direction == .top_right ? prevTy + 0.01 : prevTy - 0.01
-            let tz: Float = 0.0
+            let tz: Float = -5.0
             let translationMatrix = matrix_float4x4.init(
                 rows: [
                     // C0  C1   C2   C3
@@ -266,7 +267,7 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
             } else if prevSx <= 0.5 {
                 scaleEffect = .grow
             }
-            // For fun: Switch back to initial state to do a ping pong effect :D
+            // For fun: grow/shrink effect
             let sx: Float = scaleEffect == .grow ? prevSx + 0.01 : prevSx - 0.01
             let sy: Float = scaleEffect == .grow ? prevSy + 0.01 : prevSy - 0.01
             let sz: Float = scaleEffect == .grow ? prevSz + 0.01 : prevSz - 0.01
@@ -281,6 +282,21 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
             )
             return scaleMatrix
         }
+    }
+    
+    func getProjectionMatrix(near: Float = 0.1, far: Float = 100.0, aspect: Float = 1.0) -> float4x4 {
+        let fovyRadians: Float = .pi / 4.0 // 45 degrees
+        let cotangent = 1.0 / tan(fovyRadians / 2)
+        let projectionMatrix = matrix_float4x4.init(
+            rows: [
+                // C0  C1   C2   C3
+                [cotangent / aspect, 0.0, 0.0, 0.0],
+                [0.0, cotangent, 0.0, 0.0],
+                [0.0, 0.0, (far + near) / (near - far), 2 * near * far / (near - far)],
+                [0.0, 0.0, -1.0, 0.0],
+            ]
+        )
+        return projectionMatrix
     }
     
     /// Called every frame to draw
@@ -309,17 +325,19 @@ final class TD_02_CubeMetalRenderer: NSObject, MTKViewDelegate {
 
         encoder.setVertexBuffer(positionsBuffer, offset: 0, index: 1)
 
-        translationMatrix = getNewTranslationMatrix(isInitialState: false) // Set isInitialState to false to see ping pong effect
+        projectionMatrix = getProjectionMatrix()
+        
+        translationMatrix = getNewTranslationMatrix(isInitialState: true) // Set isInitialState to false to see ping pong effect
         // Send the translation transformation matrix directly to the GPU without creating a persistent buffer (efficient for small, frequently updated data) with setVertexBytes
         encoder.setVertexBytes(&translationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 2)
         
-        rotationMatrix = getNewRotationMatrix(isInitialState: true, for: CACurrentMediaTime())
+        rotationMatrix = getNewRotationMatrix(isInitialState: false, for: CACurrentMediaTime())
         encoder.setVertexBytes(&rotationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 3) // Set isInitialState to false to see rotation effect
 
         scaleMatrix = getNewScaleMatrix(isInitialState: true) // Set isInitialState to false to see grow/shrink effect
         encoder.setVertexBytes(&scaleMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 4)
 
-        finalMatrix = translationMatrix * rotationMatrix * scaleMatrix // TRS
+        finalMatrix = projectionMatrix * translationMatrix * rotationMatrix * scaleMatrix // TRS
         encoder.setVertexBytes(&finalMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 5)
 
         encoder.drawIndexedPrimitives(type: .triangle, indexCount: indices.count, indexType: .uint16, indexBuffer: indexBuffer, indexBufferOffset: 0)
