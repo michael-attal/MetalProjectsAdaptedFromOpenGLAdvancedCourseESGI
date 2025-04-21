@@ -14,7 +14,8 @@ struct ContentView: View {
             // MetalRendererSelector()
             // TD_01_MetalCanvasView().aspectRatio(contentMode: .fit)
             // TD_02_MetalCanvasView().aspectRatio(contentMode: .fit)
-            TD_03_MetalCanvasView().aspectRatio(contentMode: .fit)
+            // TD_03_MetalCanvasView().aspectRatio(contentMode: .fit)
+            TD_04_MetalCanvasView().aspectRatio(contentMode: .fit)
         }
     }
 }

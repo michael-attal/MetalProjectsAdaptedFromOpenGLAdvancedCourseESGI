@@ -1,36 +1,38 @@
 //
-//  TD_03_TriangleMetalRenderer.swift
+//  TD_04_TriangleMetalRenderer.swift
 //  MetalProjectsAdaptedFromOpenGLAdvancedCourseESGI
 //
-//  Created by Michaël ATTAL on 16/04/2035.
+//  Created by Michaël ATTAL on 16/04/2045.
 //
 
 import MetalKit
 
-struct TD_03_Cube_VertexIn {
+struct TD_04_Dragon_VertexIn {
     let position: SIMD3<Float>
-    let color: SIMD4<Float>
+    let normal: SIMD3<Float>
+    let uv: SIMD2<Float>
 }
 
-enum TD_03_Cube_Direction {
+enum TD_04_Dragon_Direction {
     case top_right
     case bottom_left
 }
 
-enum TD_03_Cube_ScaleEffect {
+enum TD_04_Dragon_ScaleEffect {
     case grow
     case shrink
 }
 
-final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
+final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice
     private var pipelineState: MTLRenderPipelineState?
     private var commandQueue: MTLCommandQueue?
     private var vertexBuffer: MTLBuffer?
     private var indexBuffer: MTLBuffer?
     private var positionsBuffer: MTLBuffer?
-    private var direction: TD_03_Cube_Direction = .top_right
-    private var scaleEffect: TD_03_Cube_ScaleEffect = .grow
+    private var normalsBuffer: MTLBuffer?
+    private var direction: TD_04_Dragon_Direction = .top_right
+    private var scaleEffect: TD_04_Dragon_ScaleEffect = .grow
     private var projectionMatrix: matrix_float4x4 = .init()
     private var translationMatrix: matrix_float4x4 = .init()
     private var rotationMatrix: matrix_float4x4 = .init()
@@ -47,6 +49,9 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
     private var depthStencilState: MTLDepthStencilState?
     
     var indices: [UInt16] = []
+    
+    private let nbIndicesDragon = DragonIndices.count
+    private let nbVerticesDragon = DragonVertices.count / 8 // because each vertex contains X,Y,Z, NX, NY, NZ, U, V = 8 floats per vertex
 
     init(mtkView: MTKView) {
         guard let device = mtkView.device else {
@@ -69,8 +74,8 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         }
         
         // 3. Functions (vertex & fragment) corresponding to shaders
-        let vertexFunction = library.makeFunction(name: "vs_td_03_cube")
-        let fragmentFunction = library.makeFunction(name: "fs_td_03_cube_textured")
+        let vertexFunction = library.makeFunction(name: "vs_td_04_dragon")
+        let fragmentFunction = library.makeFunction(name: "fs_td_04_dragon_textured")
         
         // 4. Pipeline descriptor creation
         let pipelineDescriptor = MTLRenderPipelineDescriptor()
@@ -84,10 +89,13 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         vertexDescriptor.attributes[0].format = .float3
         vertexDescriptor.attributes[0].offset = 0
         vertexDescriptor.attributes[1].bufferIndex = 0
-        vertexDescriptor.attributes[1].format = .float4
+        vertexDescriptor.attributes[1].format = .float3
         vertexDescriptor.attributes[1].offset = 16 // MemoryLayout<SIMD3<Float>>.stride // All SIMD count as 16 bytes for optimization (it adds padding)
+        vertexDescriptor.attributes[1].bufferIndex = 0
+        vertexDescriptor.attributes[1].format = .float2
+        vertexDescriptor.attributes[1].offset = 16
 
-        vertexDescriptor.layouts[0].stride = MemoryLayout<TD_03_Cube_VertexIn>.stride
+        vertexDescriptor.layouts[0].stride = MemoryLayout<TD_04_Dragon_VertexIn>.stride
 
         pipelineDescriptor.vertexDescriptor = vertexDescriptor
         
@@ -109,46 +117,32 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         // 5.b Vertex & Index buffer creation
         
         // Added more positions (and indices) to allow custom textures per face (not just a uniform one).
-        let positions3D: [SIMD3<Float>] = [
-            // front face
-            [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
-            // back face
-            [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5],
-            // left face
-            [-0.5, -0.5, 0.5], [-0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, 0.5, 0.5],
-            // right face
-            [0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, -0.5],
-            // top face
-            [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5],
-            // bottom face
-            [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, -0.5, -0.5], [-0.5, -0.5, -0.5],
-        ]
-        let redColor = SIMD4<Float>(1.0, 0.0, 0.0, 1.0)
-        let blueColor = SIMD4<Float>(0.0, 0.0, 1.0, 1.0)
-        let greenColor = SIMD4<Float>(0.0, 1.0, 0.0, 1.0)
-        let colors = [redColor, blueColor, greenColor]
-        var vertices: [TD_03_Cube_VertexIn] = []
+        var positions3D: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        var uv: [SIMD2<Float>] = []
+        for i in 0 ..< DragonVertices.count {
+            if i % 8 != 0 { continue }
+            // if i == DragonVertices.count - 5 { break }
+            positions3D.append([DragonVertices[i], DragonVertices[i + 1], DragonVertices[i + 2]])
+            normals.append([DragonVertices[i + 3], DragonVertices[i + 4], DragonVertices[i + 5]])
+            uv.append([DragonVertices[i + 6], DragonVertices[i + 7]])
+        }
+        
+        var vertices: [TD_04_Dragon_VertexIn] = []
         vertices.reserveCapacity(positions3D.count)
         for (i, p) in positions3D.enumerated() {
-            vertices.append(TD_03_Cube_VertexIn(position: p, color: colors[1]))
+            vertices.append(TD_04_Dragon_VertexIn(position: p, normal: .init(), uv: .init()))
         }
             
         vertexBuffer = device.makeBuffer(
             bytes: vertices,
-            length: vertices.count * MemoryLayout<TD_03_Cube_VertexIn>.stride,
+            length: vertices.count * MemoryLayout<TD_04_Dragon_VertexIn>.stride,
             options: []
         )
         
-        // Define an array of indices for the cube(s)
-        indices = [
-            0, 1, 2, 2, 3, 0, // front
-            4, 5, 6, 6, 7, 4, // back
-            8, 9, 10, 10, 11, 8, // left
-            12, 13, 14, 14, 15, 12, // right
-            16, 17, 18, 18, 19, 16, // top
-            20, 21, 22, 22, 23, 20, // bottom
-        ]
-
+        // Define an array of indices for the dragon
+        indices = DragonIndices
+        
         // Create the index buffer
         indexBuffer = device.makeBuffer(
             bytes: indices,
@@ -160,6 +154,12 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         positionsBuffer = device.makeBuffer(
             bytes: positions3D,
             length: positions3D.count * MemoryLayout<SIMD3<Float>>.stride,
+            options: []
+        )
+        
+        normalsBuffer = device.makeBuffer(
+            bytes: normals,
+            length: normals.count * MemoryLayout<SIMD3<Float>>.stride,
             options: []
         )
         
@@ -183,15 +183,16 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         desc.storageMode = .managed
         fillTexture = device.makeTexture(descriptor: desc)
         
-        // textureData = updateTextureData(useUniformColor: true, rgbaColor: [0, 255, 0, 255], textureWidth: textureWidth, textureHeight: textureHeight)  // Uncomment to use a uniform color
+        // textureData = updateTextureData(useUniformColor: true, rgbaColor: [0, 255, 0, 255], textureWidth: textureWidth, textureHeight: textureHeight)  // Uncomment to use a uniform color (green dragon)
+        
         // textureData = updateTextureData(useUniformColor: false, textureWidth: textureWidth, textureHeight: textureHeight) // Uncomment to use multiple color
-        // textureData = updateTextureData(useCustomTexture: true, customTextureName: "my-texture") // Not working correctly, I use the prebuilt metal texture loader instead.
+        // textureData = updateTextureData(useCustomTexture: true, customTextureName: "dragon") // Not working correctly, I use the prebuilt metal texture loader instead.
         
         // fillTexture = updateFillTexture(textureData, textureWidth: textureWidth, textureHeight: textureHeight) // Uncomment to use the textureData created before in the fill texture.
         
         // prebuilt metal texture loader - Uncomment to use
         let textureLoader = MTKTextureLoader(device: device)
-        if let url = Bundle.main.url(forResource: "my-texture", withExtension: "png") {
+        if let url = Bundle.main.url(forResource: "dragon", withExtension: "png") {
             do {
                 fillTexture = try textureLoader.newTexture(URL: url, options: [
                     MTKTextureLoader.Option.origin: MTKTextureLoader.Origin.bottomLeft,
@@ -204,20 +205,7 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
             print("Texture my-texture.png not found in bundle.")
         }
         
-        uvTexture = [
-            // front
-            [0, 0], [1, 0], [1, 1], [0, 1],
-            // back
-            [0, 0], [1, 0], [1, 1], [0, 1],
-            // left
-            [0, 0], [1, 0], [1, 1], [0, 1],
-            // right
-            [0, 0], [1, 0], [1, 1], [0, 1],
-            // top
-            [0, 0], [1, 0], [1, 1], [0, 1],
-            // bottom
-            [0, 0], [1, 0], [1, 1], [0, 1],
-        ]
+        uvTexture = uv
         
         // Constant uv buffer ftm
         uvBuffer = device.makeBuffer(
@@ -325,8 +313,8 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
                 rows: [
                     // C0  C1   C2   C3
                     [1.0, 0.0, 0.0, 0],
-                    [0.0, 1.0, 0.0, 0],
-                    [0.0, 0.0, 1.0, -5.0], // Since the implementation of the projection matrix, move the cube a little bit.
+                    [0.0, 1.0, 0.0, -3.0], // Down the dragon a little bit
+                    [0.0, 0.0, 1.0, -30.0], // Since the implementation of the projection matrix, move the dragon a little bit.
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             )
@@ -342,12 +330,12 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
             // For fun: Switch back to initial state to do a ping pong effect :D
             let tx: Float = direction == .top_right ? prevTx + 0.01 : prevTx - 0.01
             let ty: Float = direction == .top_right ? prevTy + 0.01 : prevTy - 0.01
-            let tz: Float = -5.0
+            let tz: Float = -30.0
             let translationMatrix = matrix_float4x4.init(
                 rows: [
                     // C0  C1   C2   C3
                     [1.0, 0.0, 0.0, tx],
-                    [0.0, 1.0, 0.0, ty],
+                    [0.0, 1.0, 0.0, ty - 3.0],
                     [0.0, 0.0, 1.0, tz],
                     [0.0, 0.0, 0.0, 1.0],
                 ]
@@ -376,21 +364,21 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
             // Rotate on X
             let rotationMatrix = matrix_float4x4.init(
                 // x
-                rows: [
-                    // C0  C1   C2   C3
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, cA, -sA, 0.0],
-                    [0.0, sA, cA, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ]
-                // y
                 // rows: [
                 //     // C0  C1   C2   C3
-                //     [cA, 0.0, -sA, 0.0],
-                //     [0.0, 1.0, 0.0, 0.0],
-                //     [sA, 0.0, cA, 0.0],
+                //     [1.0, 0.0, 0.0, 0.0],
+                //     [0.0, cA, -sA, 0.0],
+                //     [0.0, sA, cA, 0.0],
                 //     [0.0, 0.0, 0.0, 1.0],
                 // ]
+                // y
+                rows: [
+                    // C0  C1   C2   C3
+                    [cA, 0.0, -sA, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [sA, 0.0, cA, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
                 // z
                 // rows: [
                 //     // C0  C1   C2   C3
@@ -470,6 +458,7 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
             let positionsBuffer = positionsBuffer,
             let uvBuffer = uvBuffer,
             let depthStencilState = depthStencilState,
+            let normalsBuffer = normalsBuffer,
             indices.count > 0
         else {
             return
@@ -480,6 +469,7 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         
         // 2. Render command encoder creation
         let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor)!
+        
         encoder.setRenderPipelineState(pipelineState)
         
         encoder.setDepthStencilState(depthStencilState)
@@ -487,23 +477,27 @@ final class TD_03_CubeMetalRenderer: NSObject, MTKViewDelegate {
         encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
 
         encoder.setVertexBuffer(positionsBuffer, offset: 0, index: 1)
+
+        encoder.setVertexBuffer(normalsBuffer, offset: 0, index: 2)
+
+        encoder.setVertexBuffer(uvBuffer, offset: 0, index: 3)
         
-        encoder.setVertexBuffer(uvBuffer, offset: 0, index: 2)
+        // encoder.setCullMode(.front) // We can uncomment it we do no rotation of the dragon and want to optimize a little bit by not drawing hidden faces
 
         projectionMatrix = getProjectionMatrix()
         
         translationMatrix = getNewTranslationMatrix(isInitialState: true) // Set isInitialState to false to see ping pong effect
         // Send the translation transformation matrix directly to the GPU without creating a persistent buffer (efficient for small, frequently updated data) with setVertexBytes
-        encoder.setVertexBytes(&translationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 3)
+        encoder.setVertexBytes(&translationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 4)
         
         rotationMatrix = getNewRotationMatrix(isInitialState: false, for: CACurrentMediaTime())
-        encoder.setVertexBytes(&rotationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 4) // Set isInitialState to false to see rotation effect
+        encoder.setVertexBytes(&rotationMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 5) // Set isInitialState to false to see rotation effect
 
         scaleMatrix = getNewScaleMatrix(isInitialState: true) // Set isInitialState to false to see grow/shrink effect
-        encoder.setVertexBytes(&scaleMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 5)
+        encoder.setVertexBytes(&scaleMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 6)
 
         finalMatrix = projectionMatrix * translationMatrix * rotationMatrix * scaleMatrix // TRS
-        encoder.setVertexBytes(&finalMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 6)
+        encoder.setVertexBytes(&finalMatrix, length: MemoryLayout<matrix_float4x4>.stride, index: 7)
 
         if let texture = fillTexture {
             encoder.setFragmentTexture(texture, index: 0)
