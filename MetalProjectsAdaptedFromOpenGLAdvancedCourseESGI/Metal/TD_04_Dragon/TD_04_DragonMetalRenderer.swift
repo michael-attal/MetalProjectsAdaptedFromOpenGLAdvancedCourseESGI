@@ -48,23 +48,80 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
 
     private var depthStencilState: MTLDepthStencilState?
     
-    var indices: [UInt16] = []
+    private var indices: [UInt16] = []
     
     private let nbIndicesDragon = DragonIndices.count
     private let nbVerticesDragon = DragonVertices.count / 8 // because each vertex contains X,Y,Z, NX, NY, NZ, U, V = 8 floats per vertex
-
-    init(mtkView: MTKView) {
+    
+    private var isObj = false
+    private var objMtlVertexDescriptor: MTLVertexDescriptor?
+    private var objURL: URL?
+    private var objMesh: MTKMesh?
+    private var objSubmesh: MTKSubmesh?
+    
+    init(mtkView: MTKView, objURL: URL? = nil) {
         guard let device = mtkView.device else {
             fatalError("MTKView has no MTLDevice.")
         }
         self.device = device
         super.init()
         
+        self.objURL = objURL
+        
         // Creates CommandQueue and pipeline
         buildResources(mtkView: mtkView)
     }
     
     private func buildResources(mtkView: MTKView) {
+        if let objURL = objURL {
+            // MARK: - ModelIO Setup
+
+            // 1. Prepare ModelIO vertex descriptor for position, normal, uv
+            let mdlVertexDescriptor = MDLVertexDescriptor()
+            mdlVertexDescriptor.attributes[0] = MDLVertexAttribute(name: MDLVertexAttributePosition,
+                                                                   format: .float3,
+                                                                   offset: 0,
+                                                                   bufferIndex: 0)
+            mdlVertexDescriptor.attributes[1] = MDLVertexAttribute(name: MDLVertexAttributeNormal,
+                                                                   format: .float3,
+                                                                   offset: MemoryLayout<SIMD3<Float>>.stride,
+                                                                   bufferIndex: 0)
+            mdlVertexDescriptor.attributes[2] = MDLVertexAttribute(name: MDLVertexAttributeTextureCoordinate,
+                                                                   format: .float2,
+                                                                   offset: MemoryLayout<SIMD3<Float>>.stride * 2,
+                                                                   bufferIndex: 0)
+            mdlVertexDescriptor.layouts[0] = MDLVertexBufferLayout(stride: MemoryLayout<TD_04_Dragon_VertexIn>.stride)
+
+            // 2. Load the OBJ using ModelIO with custom descriptor
+            let allocator = MTKMeshBufferAllocator(device: device)
+            let asset = MDLAsset(url: objURL,
+                                 vertexDescriptor: mdlVertexDescriptor,
+                                 bufferAllocator: allocator)
+            guard let mdlMesh = asset.childObjects(of: MDLMesh.self).first as? MDLMesh else {
+                fatalError("Failed to load MDLMesh from URL: \(objURL)")
+            }
+            mdlMesh.addNormals(withAttributeNamed: MDLVertexAttributeNormal,
+                               creaseThreshold: 0.0)
+
+            // 3. Create an MTKMesh from the ModelIO mesh
+            do {
+                objMesh = try MTKMesh(mesh: mdlMesh, device: device)
+            } catch {
+                fatalError("Failed to create MTKMesh: \(error)")
+            }
+            guard let objMesh = objMesh, let firstSubmesh = objMesh.submeshes.first else {
+                fatalError("No submeshes found in the OBJ model.")
+            }
+            objSubmesh = firstSubmesh
+
+            // Convert MDL to MTL vertex descriptor for pipeline
+            guard let mtlVertexDescriptor = MTKMetalVertexDescriptorFromModelIO(mdlVertexDescriptor) else {
+                fatalError("Failed to convert MDLVertexDescriptor to MTLVertexDescriptor.")
+            }
+            
+            objMtlVertexDescriptor = mtlVertexDescriptor
+        }
+        
         // 1. Creation of a command queue
         commandQueue = device.makeCommandQueue()
         
@@ -85,19 +142,19 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         
         // 4.b Vertex buffer descriptor creation
         let vertexDescriptor = MTLVertexDescriptor()
-        vertexDescriptor.attributes[0].bufferIndex = 0
+        vertexDescriptor.attributes[0].bufferIndex = 0 // Not used for the moment, we pass all these 3 attributes via vertex buffers
         vertexDescriptor.attributes[0].format = .float3
         vertexDescriptor.attributes[0].offset = 0
         vertexDescriptor.attributes[1].bufferIndex = 0
         vertexDescriptor.attributes[1].format = .float3
         vertexDescriptor.attributes[1].offset = 16 // MemoryLayout<SIMD3<Float>>.stride // All SIMD count as 16 bytes for optimization (it adds padding)
-        vertexDescriptor.attributes[1].bufferIndex = 0
-        vertexDescriptor.attributes[1].format = .float2
-        vertexDescriptor.attributes[1].offset = 16
+        vertexDescriptor.attributes[2].bufferIndex = 0
+        vertexDescriptor.attributes[2].format = .float2
+        vertexDescriptor.attributes[2].offset = 16
 
         vertexDescriptor.layouts[0].stride = MemoryLayout<TD_04_Dragon_VertexIn>.stride
 
-        pipelineDescriptor.vertexDescriptor = vertexDescriptor
+        pipelineDescriptor.vertexDescriptor = isObj ? objMtlVertexDescriptor : vertexDescriptor
         
         let depthDescriptor = MTLDepthStencilDescriptor() // Configure Z-buffer
         depthDescriptor.isDepthWriteEnabled = true
@@ -150,18 +207,77 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
             options: []
         )
         
-        // Constant positions buffer
-        positionsBuffer = device.makeBuffer(
-            bytes: positions3D,
-            length: positions3D.count * MemoryLayout<SIMD3<Float>>.stride,
-            options: []
-        )
-        
-        normalsBuffer = device.makeBuffer(
-            bytes: normals,
-            length: normals.count * MemoryLayout<SIMD3<Float>>.stride,
-            options: []
-        )
+        if let objMesh = objMesh, let vb = objMesh.vertexBuffers.first, let objMtlVertexDescriptor = objMtlVertexDescriptor {
+            let desc = objMtlVertexDescriptor
+            let stride = desc.layouts[0].stride
+            let posOffset = desc.attributes[0].offset
+            let normalOffset = desc.attributes[1].offset
+            let uvOffset = desc.attributes[2].offset
+            let vertexCount = objMesh.vertexCount
+            let rawPtr = vb.buffer.contents()
+
+            var positions = [SIMD3<Float>]()
+            var normals = [SIMD3<Float>]()
+            var uvs = [SIMD2<Float>]()
+            positions.reserveCapacity(vertexCount)
+            normals.reserveCapacity(vertexCount)
+            uvs.reserveCapacity(vertexCount)
+
+            for i in 0 ..< vertexCount {
+                let basePtr = rawPtr.advanced(by: i * stride)
+                // Positions
+                let pPtr = basePtr.advanced(by: posOffset).assumingMemoryBound(to: Float.self)
+                let p = SIMD3<Float>(pPtr[0], pPtr[1], pPtr[2])
+                positions.append(p)
+                // Normals
+                let nPtr = basePtr.advanced(by: normalOffset).assumingMemoryBound(to: Float.self)
+                let n = SIMD3<Float>(nPtr[0], nPtr[1], nPtr[2])
+                normals.append(n)
+                // UVs
+                let uPtr = basePtr.advanced(by: uvOffset).assumingMemoryBound(to: Float.self)
+                let u = SIMD2<Float>(uPtr[0], uPtr[1])
+                uvs.append(u)
+            }
+
+            positionsBuffer = device.makeBuffer(
+                bytes: positions,
+                length: positions.count * MemoryLayout<SIMD3<Float>>.stride,
+                options: []
+            )
+            normalsBuffer = device.makeBuffer(
+                bytes: normals,
+                length: normals.count * MemoryLayout<SIMD3<Float>>.stride,
+                options: []
+            )
+            uvBuffer = device.makeBuffer(
+                bytes: uvs,
+                length: uvs.count * MemoryLayout<SIMD2<Float>>.stride,
+                options: []
+            )
+
+            if let sub = objSubmesh {
+                indexBuffer = sub.indexBuffer.buffer
+                indices = Array(UnsafeBufferPointer(start: sub.indexBuffer.buffer.contents().assumingMemoryBound(to: UInt16.self),
+                                                    count: Int(sub.indexCount)))
+            }
+            
+            vertexBuffer = objMesh.vertexBuffers[0].buffer
+            // uv = uvs // Uncomment to use the obj uvs
+            isObj = true
+        } else {
+            // Constant positions buffer for dragon
+            positionsBuffer = device.makeBuffer(
+                bytes: positions3D,
+                length: positions3D.count * MemoryLayout<SIMD3<Float>>.stride,
+                options: []
+            )
+            
+            normalsBuffer = device.makeBuffer(
+                bytes: normals,
+                length: normals.count * MemoryLayout<SIMD3<Float>>.stride,
+                options: []
+            )
+        }
         
         projectionMatrix = getProjectionMatrix()
 
@@ -183,7 +299,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         desc.storageMode = .managed
         fillTexture = device.makeTexture(descriptor: desc)
         
-        // textureData = updateTextureData(useUniformColor: true, rgbaColor: [0, 255, 0, 255], textureWidth: textureWidth, textureHeight: textureHeight)  // Uncomment to use a uniform color (green dragon)
+        // textureData = updateTextureData(useUniformColor: true, rgbaColor: [0, 255, 0, 255], textureWidth: textureWidth, textureHeight: textureHeight) // Uncomment to use a uniform color (green dragon)
         
         // textureData = updateTextureData(useUniformColor: false, textureWidth: textureWidth, textureHeight: textureHeight) // Uncomment to use multiple color
         // textureData = updateTextureData(useCustomTexture: true, customTextureName: "dragon") // Not working correctly, I use the prebuilt metal texture loader instead.
@@ -192,7 +308,13 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         
         // prebuilt metal texture loader - Uncomment to use
         let textureLoader = MTKTextureLoader(device: device)
-        if let url = Bundle.main.url(forResource: "dragon", withExtension: "png") {
+        let textureName: String
+        if isObj {
+            textureName = "bear-multiples-colors" // TODO: pass it as parameter also later
+        } else {
+            textureName = "dragon"
+        }
+        if let url = Bundle.main.url(forResource: textureName, withExtension: "png") {
             do {
                 fillTexture = try textureLoader.newTexture(URL: url, options: [
                     MTKTextureLoader.Option.origin: MTKTextureLoader.Origin.bottomLeft,
@@ -314,7 +436,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
                     // C0  C1   C2   C3
                     [1.0, 0.0, 0.0, 0],
                     [0.0, 1.0, 0.0, -3.0], // Down the dragon a little bit
-                    [0.0, 0.0, 1.0, -30.0], // Since the implementation of the projection matrix, move the dragon a little bit.
+                    [0.0, 0.0, 1.0, isObj ? -70.0 : -30.0], // Since the implementation of the projection matrix, move the dragon a little bit.
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             )
@@ -330,7 +452,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
             // For fun: Switch back to initial state to do a ping pong effect :D
             let tx: Float = direction == .top_right ? prevTx + 0.01 : prevTx - 0.01
             let ty: Float = direction == .top_right ? prevTy + 0.01 : prevTy - 0.01
-            let tz: Float = -30.0
+            let tz: Float = isObj ? -70.0 : -30.0
             let translationMatrix = matrix_float4x4.init(
                 rows: [
                     // C0  C1   C2   C3
@@ -503,7 +625,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
             encoder.setFragmentTexture(texture, index: 0)
         }
         
-        encoder.drawIndexedPrimitives(type: .triangle, indexCount: indices.count, indexType: .uint16, indexBuffer: indexBuffer, indexBufferOffset: 0)
+        encoder.drawIndexedPrimitives(type: .triangle, indexCount: indices.count, indexType: isObj ? objSubmesh!.indexType : .uint16, indexBuffer: indexBuffer, indexBufferOffset: 0)
         
         // 4. End & commit
         encoder.endEncoding()
