@@ -41,6 +41,10 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
     private var finalMatrix: matrix_float4x4 = .init()
     
     private var fillTexture: MTLTexture?
+    private var displacementTexture: MTLTexture?
+    private var normalTexture: MTLTexture?
+    private var roughnessTexture: MTLTexture?
+    private var HDRPmaskMapTexture: MTLTexture?
     private var textureData: [UInt8] = []
     private var uvBuffer: MTLBuffer?
     private var uvTexture: [SIMD2<Float>] = []
@@ -87,7 +91,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
 
     private func setupMeshData() {
         if let objURL = objURL {
-            setupOBJMesh(useRandomUVs: true) // No texture for the bear model found in internet, so I use random UVs
+            setupOBJMesh(useRandomUVs: false) // No texture for the bear model found in internet, so I use random UVs
         } else {
             setupDragonMesh()
         }
@@ -339,7 +343,13 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         fillTexture = device.makeTexture(descriptor: desc)
         
         // Different texture options (uncomment one to use):
-        loadPrebuiltTexture(name: isObj ? "bear-multiples-colors" : "dragon") // TODO: pass it as parameter also later
+        fillTexture = loadPrebuiltTexture(name: isObj ? "monkey_albedo" : "dragon") // TODO: pass it as parameter also later
+        if isObj {
+            displacementTexture = loadPrebuiltTexture(name: "monkey_displacement")
+            normalTexture = loadPrebuiltTexture(name: "monkey_normal")
+            roughnessTexture = loadPrebuiltTexture(name: "monkey_roughness")
+            HDRPmaskMapTexture = loadPrebuiltTexture(name: "monkey_HDRP_mask_map")
+        }
         
         // Option 1: Uniform color (green dragon)
         // textureData = updateTextureData(useUniformColor: true, rgbaColor: [0, 255, 0, 255])
@@ -354,11 +364,12 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         // fillTexture = updateFillTexture(textureData)
     }
     
-    private func loadPrebuiltTexture(name: String) {
+    private func loadPrebuiltTexture(name: String) -> MTLTexture? {
+        var newTexture: MTLTexture?
         let textureLoader = MTKTextureLoader(device: device)
         if let url = Bundle.main.url(forResource: name, withExtension: "png") {
             do {
-                fillTexture = try textureLoader.newTexture(URL: url, options: [
+                newTexture = try textureLoader.newTexture(URL: url, options: [
                     MTKTextureLoader.Option.origin: MTKTextureLoader.Origin.bottomLeft,
                     MTKTextureLoader.Option.SRGB: false,
                 ])
@@ -368,6 +379,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
         } else {
             print("Texture \(name).png not found in bundle.")
         }
+        return newTexture
     }
     
     private func updateTextureData(
@@ -472,7 +484,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
     
     // MARK: - Matrix Creation Functions
 
-    func getProjectionMatrix(near: Float = 0.1, far: Float = 100.0, aspect: Float = 1.0) -> float4x4 {
+    func getProjectionMatrix(near: Float = 0.1, far: Float = 1000.0, aspect: Float = 1.0) -> float4x4 {
         let fovyRadians: Float = .pi / 4.0 // 45 degrees
         let cotangent = 1.0 / tan(fovyRadians / 2)
         let projectionMatrix = matrix_float4x4.init(
@@ -493,8 +505,8 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
                 rows: [
                     // C0  C1   C2   C3
                     [1.0, 0.0, 0.0, 0],
-                    [0.0, 1.0, 0.0, -3.0], // Down the dragon a little bit
-                    [0.0, 0.0, 1.0, isObj ? -70.0 : -30.0], // Since the implementation of the projection matrix, move the dragon a little bit.
+                    [0.0, 1.0, 0.0, isObj ? 0.0 : -3.0], // Down the dragon a little bit
+                    [0.0, 0.0, 1.0, isObj ? -5.0 : -30.0], // Since the implementation of the projection matrix, move the dragon a little bit.
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             )
@@ -510,7 +522,7 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
             // For fun: Switch back to initial state to do a ping pong effect :D
             let tx: Float = direction == .top_right ? prevTx + 0.01 : prevTx - 0.01
             let ty: Float = direction == .top_right ? prevTy + 0.01 : prevTy - 0.01
-            let tz: Float = isObj ? -70.0 : -30.0
+            let tz: Float = isObj ? -5.0 : -30.0
             let translationMatrix = matrix_float4x4.init(
                 rows: [
                     // C0  C1   C2   C3
@@ -669,6 +681,34 @@ final class TD_04_DragonMetalRenderer: NSObject, MTKViewDelegate {
             encoder.setFragmentTexture(texture, index: 0)
         }
         
+        var useAllTextures = true
+
+        if let displacementTexture = displacementTexture {
+            encoder.setFragmentTexture(displacementTexture, index: 1)
+        } else {
+            useAllTextures = false
+        }
+        
+        if let normalTexture = normalTexture {
+            encoder.setFragmentTexture(normalTexture, index: 2)
+        } else {
+            useAllTextures = false
+        }
+        
+        if let roughnessTexture = roughnessTexture {
+            encoder.setFragmentTexture(roughnessTexture, index: 3)
+        } else {
+            useAllTextures = false
+        }
+        
+        if let HDRPmaskMapTexture = HDRPmaskMapTexture {
+            encoder.setFragmentTexture(HDRPmaskMapTexture, index: 4)
+        } else {
+            useAllTextures = false
+        }
+        
+        encoder.setFragmentBytes(&useAllTextures, length: MemoryLayout<Bool>.size, index: 5)
+
         encoder.drawIndexedPrimitives(
             type: .triangle,
             indexCount: indices.count,
