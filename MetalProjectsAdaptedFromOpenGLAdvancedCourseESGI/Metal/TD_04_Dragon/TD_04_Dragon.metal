@@ -8,6 +8,29 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Inverse exist only for matrix 4x4 in metal
+// Copied from https://developer.apple.com/forums/thread/722849?answerId=826064022#826064022
+static float3x3 inverse(float3x3 const m)
+{
+    float const A =   m[1][1] * m[2][2] - m[2][1] * m[1][2];
+    float const B = -(m[0][1] * m[2][2] - m[2][1] * m[0][2]);
+    float const C =   m[0][1] * m[1][2] - m[1][1] * m[0][2];
+    float const D = -(m[1][0] * m[2][2] - m[2][0] * m[1][2]);
+    float const E =   m[0][0] * m[2][2] - m[2][0] * m[0][2];
+    float const F = -(m[0][0] * m[1][2] - m[1][0] * m[0][2]);
+    float const G =   m[1][0] * m[2][1] - m[2][0] * m[1][1];
+    float const H = -(m[0][0] * m[2][1] - m[2][0] * m[0][1]);
+    float const I =   m[0][0] * m[1][1] - m[1][0] * m[0][1];
+        
+    float const det = m[0][0] * A + m[1][0] * B + m[2][0] * C;
+    float const inv_det = 1.f / det;
+    return inv_det * float3x3{
+        float3{A, B, C},
+        float3{D, E, F},
+        float3{G, H, I}
+    };
+}
+
 // Not really necessary since we make a vertex buffer for each attribute instead, but let's keep it here just in case.
 struct TD_04_Dragon_VertexIn {
     float3 position [[attribute(0)]];
@@ -35,7 +58,13 @@ vertex TD_04_Dragon_VertexOut vs_td_04_dragon(TD_04_Dragon_VertexIn inVertex [[s
     TD_04_Dragon_VertexOut out;
 
     out.position = finalModelMatrix * float4(positions[vertexIndex], 1.0);
-    out.normal = normals[vertexIndex];
+    float4x4 matrixWithoutProjection = translationModelMatrix * rotationModelMatrix * scaleModelMatrix;
+    float3x3 normalMatrix = transpose(inverse(float3x3(
+        matrixWithoutProjection.columns[0].xyz,
+        matrixWithoutProjection.columns[1].xyz,
+        matrixWithoutProjection.columns[2].xyz
+    )));
+    out.normal = normalize(normalMatrix * normals[vertexIndex]);
     out.uv = uv[vertexIndex];
     
     return out;
@@ -44,6 +73,17 @@ vertex TD_04_Dragon_VertexOut vs_td_04_dragon(TD_04_Dragon_VertexIn inVertex [[s
 fragment float4 fs_td_04_dragon(TD_04_Dragon_VertexOut outVertex [[stage_in]])
 {
     return float4(0, 1, 0, 1);
+}
+
+float3 getDiffuse(float3 normal, float3 directionTowardsLight) {
+    // float3 n = normalize(normal); // Avoid calculation on function
+    // float3 l = normalize(directionTowardsLight);
+    float3 n = normal;
+    float3 l = directionTowardsLight;
+    
+    float NdotL = max(dot(n, l), 0.0);
+
+    return float3(NdotL);
 }
 
 fragment float4 fs_td_04_dragon_textured(
@@ -59,7 +99,14 @@ fragment float4 fs_td_04_dragon_textured(
 
     float4 fillTextureOrAlbedoTexture = fillTexture.sample(s, outVertex.uv);
     if (useAllTextures == false) {
-        return fillTextureOrAlbedoTexture;
+        // It's the dragon, we got normals
+        // Calculate diffuse now for the TD 05 Illumination
+        float3 lightDirection = normalize(float3(0.0, 0.0, -1.0));
+        float3 directionTowardsLight = -lightDirection;
+        float3 normal = normalize(outVertex.normal);
+        float3 diffuse = getDiffuse(normal, directionTowardsLight);
+        float3 lightDiffuseColor = float3(1.0, 1.0, 1.0); // For exercice 2, Part 3, Eq2. Diffuse = N.L * Id * Kd - Full white lighting ftm
+        return float4(diffuse * lightDiffuseColor * fillTextureOrAlbedoTexture.rgb, fillTextureOrAlbedoTexture.a);
     }
 
     // Defaults
