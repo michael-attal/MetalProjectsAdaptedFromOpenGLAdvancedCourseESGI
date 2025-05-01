@@ -86,6 +86,16 @@ float3 getDiffuse(float3 normal, float3 directionTowardsLight) {
     return float3(NdotL);
 }
 
+float3 getReflect(float3 incident, float3 normal) {
+    // Reflect the incident vector around the normal
+    return normalize(reflect(-incident, normal)); // Metal’s reflect assumes I = direction from light
+}
+
+float3 getSpecular(float3 incident, float3 normal, float3 viewDirection, float shininess) {
+    float3 reflectDir = getReflect(incident, normal);
+    float RdotV = max(dot(reflectDir, viewDirection), 0.0);
+    return pow(RdotV, shininess);
+}
 fragment float4 fs_td_04_dragon_textured(
     TD_04_Dragon_VertexOut outVertex [[stage_in]],
     texture2d<float> fillTexture [[texture(0)]],
@@ -106,7 +116,14 @@ fragment float4 fs_td_04_dragon_textured(
         float3 normal = normalize(outVertex.normal);
         float3 diffuse = getDiffuse(normal, directionTowardsLight);
         float3 lightDiffuseColor = float3(1.0, 1.0, 1.0); // For exercice 2, Part 3, Eq2. Diffuse = N.L * Id * Kd - Full white lighting ftm
-        return float4(diffuse * lightDiffuseColor * fillTextureOrAlbedoTexture.rgb, fillTextureOrAlbedoTexture.a);
+        float3 finalDiffuse = diffuse * lightDiffuseColor;
+        float3 specularColor = float3(1.0, 1.0, 1.0);
+        float specularIntensity = 1.0;
+        float shininess = 64.0;
+        float3 incident = -directionTowardsLight;
+        float3 viewDirection = normalize(-outVertex.position.xyz);
+        float3 finalSpecular = getSpecular(incident, normal, viewDirection, shininess) * specularColor * specularIntensity; // Exercise 3 done.
+        return float4(finalDiffuse * fillTextureOrAlbedoTexture.rgb + finalSpecular, fillTextureOrAlbedoTexture.a);
     }
 
     // Defaults
