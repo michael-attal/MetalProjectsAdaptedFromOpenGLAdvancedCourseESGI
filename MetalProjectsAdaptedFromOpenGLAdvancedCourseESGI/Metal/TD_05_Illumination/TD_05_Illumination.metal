@@ -46,10 +46,15 @@ struct TD_05_Illumination_VertexOut {
 };
 
 struct TD_05_Illumination_Light {
+    float3 position;
     float3 direction;
     float3 diffuseColor;
     float3 specularColor;
     float specularIntensity;
+    float kc;
+    float kl;
+    float kq;
+    bool isOmni;
 };
 
 struct TD_05_Illumination_Material {
@@ -104,11 +109,12 @@ float3 TD_05_Illumination_getReflect(float3 incident, float3 normal) {
     return normalize(reflect(-incident, normal)); // Metal’s reflect assumes I = direction from light
 }
 
-float3 TD_05_Illumination_getSpecular(float3 incident, float3 normal, float3 viewDirection, float shininess) {
-    float3 reflectDir = TD_05_Illumination_getReflect(incident, normal);
-    float RdotV = max(dot(reflectDir, viewDirection), 0.0);
-    return pow(RdotV, shininess);
+float3 TD_05_Illumination_getSpecular(float3 normal, float3 directionTowardsLight, float3 viewDirection, float shininess) {
+    float3 H = normalize(directionTowardsLight + viewDirection); // Half-vector
+    float NdotH = max(dot(normal, H), 0.0);
+    return pow(NdotH, shininess);
 }
+
 fragment float4 fs_TD_05_Illumination_textured(
     TD_05_Illumination_VertexOut outVertex [[stage_in]],
     texture2d<float> fillTexture [[texture(0)]],
@@ -124,16 +130,29 @@ fragment float4 fs_TD_05_Illumination_textured(
 
     float4 fillTextureOrAlbedoTexture = fillTexture.sample(s, outVertex.uv);
     
-    float3 lightDirection = normalize(u_light.direction);
-    float3 directionTowardsLight = -lightDirection;
+    float3 P = outVertex.position.xyz / outVertex.position.w;
+    float3 L;
+    float d;
+    if (u_light.isOmni) {
+        float3 lightVec = u_light.position - P;
+        d = length(lightVec);
+        L = normalize(lightVec);
+    } else {
+        L = -normalize(u_light.direction);
+        d = 1.0;
+    }
+
+    float attenuation = 1.0 / (u_light.kc + u_light.kl * d + u_light.kq * d * d);
+
     float3 normal = normalize(outVertex.normal);
-    float3 diffuse = TD_05_Illumination_getDiffuse(normal, directionTowardsLight);
+    float3 diffuse = TD_05_Illumination_getDiffuse(normal, L);
     float3 lightDiffuseColor = u_light.diffuseColor;
     float3 finalDiffuse = diffuse * lightDiffuseColor;
-    float3 specularColor = u_material.specularColor;
-    float shininess = u_material.shininess;
-    float3 incident = -directionTowardsLight;
+
     float3 viewDirection = normalize(-outVertex.position.xyz);
-    float3 finalSpecular = TD_05_Illumination_getSpecular(incident, normal, viewDirection, shininess) * specularColor * u_light.specularIntensity;
-    return float4(finalDiffuse * u_material.diffuseColor * fillTextureOrAlbedoTexture.rgb + finalSpecular, fillTextureOrAlbedoTexture.a);
+    float3 finalSpecular = TD_05_Illumination_getSpecular(normal, L, viewDirection, u_material.shininess) * u_material.specularColor * u_light.specularIntensity;
+
+    float3 finalColor = (finalDiffuse * u_material.diffuseColor + finalSpecular) * attenuation;
+
+    return float4(finalColor * fillTextureOrAlbedoTexture.rgb, fillTextureOrAlbedoTexture.a);
 }

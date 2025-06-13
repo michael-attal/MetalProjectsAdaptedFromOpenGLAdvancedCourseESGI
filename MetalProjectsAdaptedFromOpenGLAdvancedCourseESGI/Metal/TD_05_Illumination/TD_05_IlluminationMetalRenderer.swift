@@ -8,10 +8,15 @@
 import MetalKit
 
 struct TD_05_Illumination_Light {
+    var position: SIMD3<Float>
     var direction: SIMD3<Float>
     var diffuseColor: SIMD3<Float>
     var specularColor: SIMD3<Float>
     var specularIntensity: Float
+    var kc: Float
+    var kl: Float
+    var kq: Float
+    var isOmni: Bool
 }
 
 struct TD_05_Illumination_Material {
@@ -77,7 +82,17 @@ final class TD_05_IlluminationMetalRenderer: NSObject, MTKViewDelegate {
     private var objMesh: MTKMesh?
     private var objSubmesh: MTKSubmesh?
 
-    private var light = TD_05_Illumination_Light(direction: SIMD3<Float>(0, 0, -1), diffuseColor: SIMD3<Float>(1, 1, 1), specularColor: SIMD3<Float>(1, 1, 1), specularIntensity: 1.0)
+    private var light = TD_05_Illumination_Light(
+        position: SIMD3<Float>(0, 10, 10),
+        direction: SIMD3<Float>(0, 0, -1),
+        diffuseColor: SIMD3<Float>(1, 1, 1),
+        specularColor: SIMD3<Float>(1, 1, 1),
+        specularIntensity: 1.0,
+        kc: 1.0,
+        kl: 0.09,
+        kq: 0.032,
+        isOmni: false
+    )
     private var material = TD_05_Illumination_Material(diffuseColor: SIMD3<Float>(1, 1, 1), specularColor: SIMD3<Float>(1, 1, 1), shininess: 64)
     
     init(mtkView: MTKView, objURL: URL? = nil) {
@@ -140,6 +155,35 @@ final class TD_05_IlluminationMetalRenderer: NSObject, MTKViewDelegate {
         }
         mdlMesh.addNormals(withAttributeNamed: MDLVertexAttributeNormal,
                            creaseThreshold: 0.0)
+        
+        // Read Blinn-Phong material parameters from MTL if present
+        if let mdlMaterial = mdlMesh.submeshes?.firstObject as? MDLSubmesh, let material = mdlMaterial.material {
+            // Diffuse color
+            if let diffuse = material.property(with: .baseColor) {
+                if diffuse.type == .float3 {
+                    self.material.diffuseColor = SIMD3<Float>(diffuse.float3Value)
+                } else if diffuse.type == .float4 {
+                    let color = diffuse.float4Value
+                    self.material.diffuseColor = SIMD3<Float>(color.x, color.y, color.z)
+                }
+            }
+            // Specular color
+            if let specular = material.property(with: .specular) {
+                if specular.type == .float3 {
+                    self.material.specularColor = SIMD3<Float>(specular.float3Value)
+                } else if specular.type == .float4 {
+                    let color = specular.float4Value
+                    self.material.specularColor = SIMD3<Float>(color.x, color.y, color.z)
+                }
+            }
+            // Shininess
+            if let shininess = material.property(with: .specularExponent) {
+                if shininess.type == .float {
+                    let s = shininess.floatValue
+                    self.material.shininess = max(1, s * 0.25)
+                }
+            }
+        }
         
         // 3. Create an MTKMesh from the ModelIO mesh
         do {
