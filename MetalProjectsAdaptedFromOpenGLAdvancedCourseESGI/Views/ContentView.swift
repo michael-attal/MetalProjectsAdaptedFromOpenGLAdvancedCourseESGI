@@ -15,8 +15,12 @@ struct ContentView: View {
             // TD_01_MetalCanvasView().aspectRatio(contentMode: .fit)
             // TD_02_MetalCanvasView().aspectRatio(contentMode: .fit)
             // TD_03_MetalCanvasView().aspectRatio(contentMode: .fit)
-            TD_04_MetalCanvasView(modelType: .staticDragon).aspectRatio(contentMode: .fit)
-            TD_04_MetalCanvasView(modelType: .loadedOBJ(Bundle.main.url(forResource: "monkey", withExtension: "obj")!)).aspectRatio(contentMode: .fit)
+            // TD_04_MetalCanvasView(modelType: .staticDragon).aspectRatio(contentMode: .fit)
+            // TD_04_MetalCanvasView(modelType: .loadedOBJ(Bundle.main.url(forResource: "monkey", withExtension: "obj")!)).aspectRatio(contentMode: .fit)
+            VStack {
+                TD_05_MetalCanvasView(modelType: .staticDragon).aspectRatio(contentMode: .fit)
+                TD_05_MetalCanvasView(modelType: .loadedOBJ(Bundle.main.url(forResource: "monkey", withExtension: "obj")!)).aspectRatio(contentMode: .fit)
+            }
         }
     }
 }

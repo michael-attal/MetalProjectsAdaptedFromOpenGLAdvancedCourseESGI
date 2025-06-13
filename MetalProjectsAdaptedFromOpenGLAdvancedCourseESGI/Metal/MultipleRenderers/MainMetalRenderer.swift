@@ -7,7 +7,7 @@
 
 import MetalKit
 import simd
-import SwiftUICore
+import SwiftUI
 
 public final class MainMetalRenderer: NSObject, MTKViewDelegate {
     public let device: MTLDevice

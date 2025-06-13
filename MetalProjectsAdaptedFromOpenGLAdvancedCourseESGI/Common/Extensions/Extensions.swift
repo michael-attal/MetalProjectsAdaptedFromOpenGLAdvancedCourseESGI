@@ -8,7 +8,7 @@
 import AppKit
 import Foundation
 import RealityKit
-import SwiftUICore
+import SwiftUI
 
 import AppKit
 import MetalKit
